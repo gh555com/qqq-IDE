@@ -391,7 +391,7 @@ function estimateTokens() {
 //   - Completion：API accumulated completion_tokens（精确）
 //   - 不展示 Tool Definitions（固定开销，用户无须关注）
 //   - 全英文，零 i18n 依赖
-var CP = 3.0;
+//   - CHAR_PER_TOKEN 唯一真理源: content-gateway.js（2.7）
 function _estimateTokensFull() {
     var _ag = _activeAgent;
     if (!_ag) { _ctxBreakdownData = null; return 0; }
@@ -454,42 +454,43 @@ function _estimateTokensFull() {
     }
 
     // ── 6. 单位统一：tokens ──
-    var msg0Tok = Math.round(msg0TotalChars / CP);
-    var userTok = Math.round(userChars / CP);
-    var asstTok = Math.round(asstChars / CP);
-    var toolTok = Math.round(toolChars / CP);
-    var sysTok = Math.round(sysChars / CP);
-    var compTok = Math.round(compressedChars / CP);
-    var tcSchemaTok = Math.round(toolCallsChars / CP);
+    var CPT = ContentGateway.CHAR_PER_TOKEN;
+    var msg0Tok = Math.round(msg0TotalChars / CPT);
+    var userTok = Math.round(userChars / CPT);
+    var asstTok = Math.round(asstChars / CPT);
+    var toolTok = Math.round(toolChars / CPT);
+    var sysTok = Math.round(sysChars / CPT);
+    var compTok = Math.round(compressedChars / CPT);
+    var tcSchemaTok = Math.round(toolCallsChars / CPT);
 
     console.log('[CTX_BD] apiTotal=' + actualTotalUsed + ' accCompletion=' + accCompletion
         + ' msg0≈' + msg0Tok + ' user×' + userCount + '≈' + userTok + ' asst×' + asstCount + '≈' + asstTok
         + ' tool×' + toolCount + '≈' + toolTok + ' sys≈' + sysTok + ' comp≈' + compTok + ' tcSchema≈' + tcSchemaTok);
 
     // ── 7. Build rows (all tokens) ──
-    function _tk(label, tokens, indent) {
-        return { label: label, tok: tokens, indent: indent || 0 };
+    function _tk(label, tokens, indent, always) {
+        return { label: label, tok: tokens, indent: indent || 0, always: always || false };
     }
     var rows = [];
     // msg[0] breakdown
     rows.push(_tk('Permanent System Block', msg0Tok, 0));
-    if (visionChars) rows.push(_tk('  Vision Context', Math.round(visionChars / CP), 1));
-    if (timeChars) rows.push(_tk('  Time Context', Math.round(timeChars / CP), 1));
-    if (sysPromptChars) rows.push(_tk('  System Prompt', Math.round(sysPromptChars / CP), 1));
-    if (globalRulesChars) rows.push(_tk('  Global Rules', Math.round(globalRulesChars / CP), 1));
-    if (projectRulesChars) rows.push(_tk('  Project Rules', Math.round(projectRulesChars / CP), 1));
-    if (reminderChars) rows.push(_tk('  Reminder', Math.round(reminderChars / CP), 1));
+    if (visionChars) rows.push(_tk('  Vision Context', Math.round(visionChars / CPT), 1));
+    if (timeChars) rows.push(_tk('  Time Context', Math.round(timeChars / CPT), 1));
+    if (sysPromptChars) rows.push(_tk('  System Prompt', Math.round(sysPromptChars / CPT), 1));
+    if (globalRulesChars) rows.push(_tk('  Global Rules', Math.round(globalRulesChars / CPT), 1));
+    if (projectRulesChars) rows.push(_tk('  Project Rules', Math.round(projectRulesChars / CPT), 1));
+    if (reminderChars) rows.push(_tk('  Reminder', Math.round(reminderChars / CPT), 1));
     // Conversation by role
     // Note: Assistant Msgs chars + tool_calls schema ≈ Completion tokens (API exact)
     // We show Completion as the authoritative AI output total.
-    if (userCount) rows.push(_tk('User \u00d7 ' + userCount + '  = ' + _tkStr(userTok), userTok, 0));
-    if (toolCount) rows.push(_tk('Tool Results \u00d7 ' + toolCount + '  = ' + _tkStr(toolTok), toolTok, 0));
+    if (userCount) rows.push(_tk('User \u00d7 ' + userCount + '  = ' + Math.round(userTok / 1000) + 'k', userTok, 0));
+    if (toolCount) rows.push(_tk('Tool Results \u00d7 ' + toolCount + '  = ' + Math.round(toolTok / 1000) + 'k', toolTok, 0));
     if (sysCount) rows.push(_tk('Dynamic System', sysTok, 0));
     if (compressedChars) rows.push(_tk('Compressed Summary', compTok, 0));
     // Completion = accumulated API exact (all AI output across all houses)
-    rows.push(_tk('Completion (all AI output)', accCompletion, 0));
+    rows.push(_tk('Completion (all AI output)', accCompletion, 0, true));
     // Available
-    rows.push(_tk('Available', Math.max(0, CTX_MAX_TOKENS - actualTotalUsed), 0));
+    rows.push(_tk('Available', Math.max(0, CTX_MAX_TOKENS - actualTotalUsed), 0, true));
 
     _ctxBreakdownData = {
         rows: rows,
@@ -527,30 +528,35 @@ function renderCtxBreakdown() {
     var usedEl = bd.querySelector('.ctx-bd-used-num');
     var freeEl = bd.querySelector('.ctx-bd-free-num');
     var titleEl = bd.querySelector('.ctx-bd-title');
-    // Title: authoritative API total
-    var usedStr = data.apiTotalTokens >= 1000 ? (data.apiTotalTokens / 1000).toFixed(1) + 'k' : String(data.apiTotalTokens);
+    var usedStr = data.apiTotalTokens >= 1000 ? Math.round(data.apiTotalTokens / 1000) + 'k' : String(data.apiTotalTokens);
     var freeTok = Math.max(0, CTX_MAX_TOKENS - data.apiTotalTokens);
-    var freeStr = freeTok >= 1000 ? (freeTok / 1000).toFixed(1) + 'k' : String(freeTok);
+    var freeStr = freeTok >= 1000 ? Math.round(freeTok / 1000) + 'k' : String(freeTok);
     var pct = CTX_MAX_TOKENS > 0 ? (data.apiTotalTokens / CTX_MAX_TOKENS * 100).toFixed(1) : 0;
-    if (titleEl) titleEl.textContent = 'Context Usage: ' + usedStr + ' / ' + _tkStr(CTX_MAX_TOKENS) + ' (' + pct + '%)';
+    if (titleEl) titleEl.textContent = 'Context Usage: ' + usedStr + ' / ' + Math.round(CTX_MAX_TOKENS / 1000) + 'k (' + pct + '%)';
     if (usedEl) usedEl.textContent = usedStr;
     if (freeEl) freeEl.textContent = freeStr;
-    // Build rows
+    var BX = 10000;
     var html = '';
     for (var i = 0; i < data.rows.length; i++) {
         var r = data.rows[i];
+        if (!r.always && r.tok < 1000) continue;
         var indent = r.indent || 0;
         var padLeft = indent ? (12 + (indent - 1) * 14) + 'px' : '0';
         var fontSize = indent ? '10.5px' : '11px';
         var fontWeight = indent ? '400' : '500';
+        var colorStyle = (r.always && r.label === 'Available') ? 'color:var(--green);' : '';
+        var boxes = '';
+        var fullN = Math.floor(r.tok / BX);
+        var rem = r.tok % BX;
+        for (var b = 0; b < fullN && b < 100; b++) boxes += '<span class=\"ctx-bd-box ctx-bd-box-full\"></span>';
+        if (fullN === 0 || rem > 0) boxes += '<span class=\"ctx-bd-box ctx-bd-box-empty\"></span>';
+        var valStr = r.tok >= 1000 ? Math.round(r.tok / 1000) + 'k' : String(r.tok);
         var isSmall = r.tok > 0 && r.tok < 1000;
-        var colorStyle = (i === data.rows.length - 1) ? 'color:var(--green);' : '';  // Available green
         var numWeight = isSmall ? 'font-weight:400;' : '';
-        var valStr = r.tok >= 1000 ? (r.tok / 1000).toFixed(1) + 'k' : String(r.tok);
-        html += '<div class="ctx-bd-row" style="padding-left:' + padLeft + ';font-size:' + fontSize + ';font-weight:' + fontWeight + '">' +
-            '<span class="ctx-bd-label">' + r.label + '</span>' +
-            '<span class="ctx-bd-num" style="' + colorStyle + numWeight + '">' + valStr + '</span>' +
-            '<span class="ctx-bd-pct">tokens</span></div>';
+        html += '<div class=\"ctx-bd-row\" style=\"padding-left:' + padLeft + ';font-size:' + fontSize + ';font-weight:' + fontWeight + '\">' +
+            '<span class=\"ctx-bd-label\">' + r.label + '</span>' +
+            '<span class=\"ctx-bd-boxes\">' + boxes + '</span>' +
+            '<span class=\"ctx-bd-num\" style=\"' + colorStyle + numWeight + '\">' + valStr + '</span></div>';
     }
     rowsEl.innerHTML = html;
     var btnRect = $ctxBtn.getBoundingClientRect();
@@ -661,7 +667,7 @@ document.getElementById('ctx-compress').onclick = async function () {
         _ag._floorTiming.aiMs = 0;
         // ★ 结果作为 assistant 消息推入同楼层
         var _assistantMsg = _result.compressed
-            ? ('✅ Compress completed\n' + _result.detail)
+            ? ('✅ Compress completed\n    var CPT = ContentGateway.CHAR_PER_TOKEN;\n' + _result.detail)
             : ('ℹ️ ' + (_result.detail || 'No compression needed'));
         _ag.conversation.push({ role: 'assistant', content: _assistantMsg, _floor: _compressFloorNum });
         // ★ 持久化：保存这个压缩楼层
